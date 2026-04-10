@@ -12,6 +12,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List
 
+try:
+    import tiktoken
+    _encoder = tiktoken.encoding_for_model("gpt-4o")
+    def count_tokens(text: str) -> int:
+        return len(_encoder.encode(text))
+except ImportError:
+    def count_tokens(text: str) -> int:
+        return max(1, len(text) // 4)  # rough approximation
+
 
 # ---------------------------------------------------------------------------
 # Page definitions per skill level
@@ -503,6 +512,7 @@ class ContextEngineeringApp:
         self.data: Dict[str, Any] = {}
         self.current_page = 0
         self.page_widgets: Dict[str, tk.Widget] = {}
+        self._update_scheduled = False
 
         # Permanent outer frames
         self.header_frame = ttk.Frame(self.root)
@@ -604,6 +614,14 @@ class ContextEngineeringApp:
         self.progress_label = ttk.Label(self.header_frame, text="")
         self.progress_label.pack(side=tk.RIGHT)
 
+        self.token_label = ttk.Label(
+            self.header_frame,
+            text="Tokens: 0",
+            font=("Helvetica", 10),
+            foreground="#555",
+        )
+        self.token_label.pack(side=tk.RIGHT, padx=(0, 16))
+
         self.progress.pack(fill=tk.X, padx=10, pady=5, before=self.content_frame)
 
         # Nav buttons
@@ -689,16 +707,19 @@ class ContextEngineeringApp:
                 var = tk.BooleanVar(value=self.data.get(field_name, False))
                 cb = ttk.Checkbutton(frame, text=field_name, variable=var)
                 cb.pack(anchor=tk.W)
+                var.trace_add("write", lambda *_: self._schedule_token_update())
                 self.page_widgets[field_name] = var
             elif field_type == "text":
                 entry = ttk.Entry(frame, width=90)
                 entry.pack(anchor=tk.W, fill=tk.X)
                 entry.insert(0, self.data.get(field_name, ""))
+                entry.bind("<KeyRelease>", lambda e: self._schedule_token_update())
                 self.page_widgets[field_name] = entry
             else:
                 text = scrolledtext.ScrolledText(frame, height=5, width=90, wrap=tk.WORD)
                 text.pack(anchor=tk.W, fill=tk.BOTH, expand=True)
                 text.insert(tk.END, self.data.get(field_name, ""))
+                text.bind("<KeyRelease>", lambda e: self._schedule_token_update())
                 self.page_widgets[field_name] = text
 
             ttk.Label(frame, text=helper, foreground="gray", font=("Helvetica", 9),
@@ -717,6 +738,56 @@ class ContextEngineeringApp:
         self.generate_btn.config(
             state=tk.NORMAL if self.current_page == total - 1 else tk.DISABLED
         )
+
+        self._update_token_count()
+
+    # ------------------------------------------------------------------
+    # Token estimation
+    # ------------------------------------------------------------------
+    def _schedule_token_update(self):
+        """Debounce token updates to avoid lag on every keystroke."""
+        if not self._update_scheduled:
+            self._update_scheduled = True
+            self.root.after(300, self._do_token_update)
+
+    def _do_token_update(self):
+        self._update_scheduled = False
+        self._update_token_count()
+
+    def _update_token_count(self):
+        """Recalculate token estimate from saved data + live widgets."""
+        # Merge saved data with current page's live widget values
+        merged = dict(self.data)
+        for field_name, widget in self.page_widgets.items():
+            if isinstance(widget, tk.BooleanVar):
+                merged[field_name] = widget.get()
+            elif isinstance(widget, tk.Text):
+                merged[field_name] = widget.get(1.0, tk.END).strip()
+            else:
+                merged[field_name] = widget.get().strip()
+
+        # Build the text that would be sent to the AI (mirrors _generate_markdown)
+        parts: list[str] = []
+        for page in self.pages:
+            for field_name, _, _ in page["fields"]:
+                value = merged.get(field_name, "")
+                if value and value is not True:
+                    parts.append(f"{field_name}\n{value}")
+                elif value is True:
+                    parts.append(field_name)
+
+        full_text = "\n\n".join(parts)
+        tokens = count_tokens(full_text) if full_text else 0
+
+        # Color-code: green < 4k, orange 4k-8k, red > 8k
+        if tokens < 4000:
+            color = "#2e7d32"  # green
+        elif tokens < 8000:
+            color = "#e65100"  # orange
+        else:
+            color = "#c62828"  # red
+
+        self.token_label.config(text=f"~{tokens:,} tokens", foreground=color)
 
     # ------------------------------------------------------------------
     # Navigation

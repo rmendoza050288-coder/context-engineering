@@ -13,6 +13,7 @@ Context Engineering Assistant walks you through a structured wizard to collect t
 ## Features
 
 - **Three skill levels** — Beginner (6 pages), Intermediate (10 pages), Expert (11 pages with 50+ fields)
+- **Real-time token estimation** — live token count (via tiktoken) updates as you type, color-coded by size
 - **Multi-page wizard interface** with progress tracking
 - **Dual output formats** — generates `.md` (human-readable) and `.json` (structured) files
 - **Persistent input** — your data is saved as you navigate between pages
@@ -101,6 +102,13 @@ Build a web scraper that collects product prices daily.
 
 - **Python 3.7+**
 - **tkinter** (included with most Python installations)
+- **tiktoken** (for token estimation)
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
 
 ### Troubleshooting
 
@@ -114,6 +122,7 @@ sudo apt-get install python3-tk
 
 ```
 ├── context_engineering_app.py      # Main application
+├── requirements.txt                # Python dependencies
 ├── CONTEXT_ENGINEERING_TEMPLATE.md # Reference template for context engineering
 ├── CONTEXT_APP_README.md           # Detailed app documentation
 ├── run_context_app.sh              # Shell launcher script
